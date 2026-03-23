@@ -14,6 +14,7 @@ mkdir -p "$APP/Contents/Resources"
 
 cp .build/release/ElgatoMirror "$APP/Contents/MacOS/"
 cp Info.plist "$APP/Contents/"
+cp AppIcon.icns "$APP/Contents/Resources/"
 
 echo "Signing (ad-hoc)..."
 codesign --force --deep --sign - "$APP"
