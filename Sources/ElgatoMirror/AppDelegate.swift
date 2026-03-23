@@ -105,6 +105,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(.separator())
 
+        let aboutItem = NSMenuItem(
+            title: "關於 ElgatoMirror",
+            action: #selector(showAbout),
+            keyEquivalent: ""
+        )
+        aboutItem.target = self
+        menu.addItem(aboutItem)
+
+        menu.addItem(.separator())
+
         let quitItem = NSMenuItem(
             title: "結束 ElgatoMirror",
             action: #selector(NSApplication.terminate(_:)),
@@ -172,6 +182,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         isEnabled = false
         updateStatusButton()
         updateMenu()
+    }
+
+    @objc private func showAbout() {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
+        let alert = NSAlert()
+        alert.messageText = "ElgatoMirror"
+        alert.informativeText = "版本 \(version) (\(build))\n\n將螢幕畫面水平鏡像顯示到 Elgato Prompter 題詞機的選單列工具。\n\n© 2025 Andy Juang"
+        alert.alertStyle = .informational
+        if let icon = NSImage(named: "AppIcon") {
+            alert.icon = icon
+        }
+        alert.addButton(withTitle: "確定")
+        alert.runModal()
     }
 
     private func showAlert(_ message: String) {
