@@ -6,6 +6,7 @@ class MirrorWindowController: NSObject {
     private var mirrorWindow: NSWindow?
     private var mirrorView: MirrorView?
     private var captureManager: CaptureManager?
+    var onMirroringStopped: (() -> Void)?
 
     init(sourceScreen: NSScreen, targetScreen: NSScreen) {
         self.sourceScreen = sourceScreen
@@ -17,6 +18,10 @@ class MirrorWindowController: NSObject {
 
         let sameScreen = (sourceScreen == targetScreen)
         let manager = CaptureManager()
+        manager.onStreamStopped = { [weak self] in
+            self?.stopMirroring()
+            self?.onMirroringStopped?()
+        }
         captureManager = manager
 
         Task {

@@ -6,6 +6,7 @@ import CoreMedia
 class CaptureManager: NSObject, SCStreamOutput, SCStreamDelegate {
     private var stream: SCStream?
     private var frameCallback: ((CGImage) -> Void)?
+    var onStreamStopped: (() -> Void)?
 
     // Reuse CIContext across frames for performance
     private let ciContext = CIContext(options: [.useSoftwareRenderer: false])
@@ -80,6 +81,9 @@ class CaptureManager: NSObject, SCStreamOutput, SCStreamDelegate {
 
     func stream(_ stream: SCStream, didStopWithError error: Error) {
         print("[CaptureManager] stream stopped: \(error)")
+        DispatchQueue.main.async { [weak self] in
+            self?.onStreamStopped?()
+        }
     }
 }
 

@@ -6,16 +6,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var isEnabled = false
     private var sourceScreen: NSScreen?
     private var targetScreen: NSScreen?
+    private var globalKeyMonitor: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         updateScreenDefaults()
         setupStatusItem()
+        setupGlobalHotkey()
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(screensChanged),
             name: NSApplication.didChangeScreenParametersNotification,
             object: nil
         )
+    }
+
+    private func setupGlobalHotkey() {
+        // ⌘⌥M：緊急停用鏡像（即使視窗擋住也能觸發）
+        globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self = self, self.isEnabled else { return }
+            let cmdOpt = NSEvent.ModifierFlags([.command, .option])
+            if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == cmdOpt,
+               event.charactersIgnoringModifiers?.lowercased() == "m" {
+                DispatchQueue.main.async { self.disableMirror() }
+            }
+        }
     }
 
     private func updateScreenDefaults() {
@@ -160,8 +174,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        mirrorWindowController = MirrorWindowController(sourceScreen: src, targetScreen: tgt)
-        mirrorWindowController?.startMirroring { [weak self] success, errorMsg in
+        let controller = MirrorWindowController(sourceScreen: src, targetScreen: tgt)
+        controller.onMirroringStopped = { [weak self] in
+            self?.disableMirror()
+        }
+        mirrorWindowController = controller
+        controller.startMirroring { [weak self] success, errorMsg in
             DispatchQueue.main.async {
                 if success {
                     self?.isEnabled = true
