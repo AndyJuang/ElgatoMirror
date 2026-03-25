@@ -1,6 +1,7 @@
 import AppKit
 
-class MirrorWindowController: NSObject {
+@MainActor
+final class MirrorWindowController: NSObject {
     private let sourceScreen: NSScreen
     private let targetScreen: NSScreen
     private var mirrorWindow: NSWindow?
@@ -30,17 +31,16 @@ class MirrorWindowController: NSObject {
                     sourceScreen: sourceScreen,
                     excludeOurApp: sameScreen
                 ) { [weak self] image in
-                    DispatchQueue.main.async {
+                    Task { @MainActor [weak self] in
                         self?.mirrorView?.display(image: image)
                     }
                 }
                 completion(true, nil)
             } catch {
-                DispatchQueue.main.async { [weak self] in
-                    self?.mirrorWindow?.orderOut(nil)
-                    self?.mirrorWindow = nil
-                }
-                completion(false, "螢幕擷取失敗：\(error.localizedDescription)\n\n請至「系統設定 > 隱私權與安全性 > 螢幕錄影」授予 ElgatoMirror 權限。")
+                mirrorWindow?.orderOut(nil)
+                mirrorWindow = nil
+                let nsErr = error as NSError
+                completion(false, "螢幕擷取失敗（\(nsErr.domain) \(nsErr.code)）：\(error.localizedDescription)\n\n請至「系統設定 > 隱私權與安全性 > 螢幕與系統錄音」授予 ElgatoMirror 權限，授予後請重新啟動 App。")
             }
         }
 
@@ -79,11 +79,9 @@ class MirrorWindowController: NSObject {
         captureManager = nil
         Task { await manager?.stopCapture() }
 
-        DispatchQueue.main.async { [weak self] in
-            self?.mirrorWindow?.orderOut(nil)
-            self?.mirrorWindow?.close()
-            self?.mirrorWindow = nil
-            self?.mirrorView = nil
-        }
+        mirrorWindow?.orderOut(nil)
+        mirrorWindow?.close()
+        mirrorWindow = nil
+        mirrorView = nil
     }
 }

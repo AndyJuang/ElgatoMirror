@@ -16,8 +16,8 @@ cp .build/release/ElgatoMirror "$APP/Contents/MacOS/"
 cp Info.plist "$APP/Contents/"
 cp AppIcon.icns "$APP/Contents/Resources/"
 
-echo "Signing (ad-hoc)..."
-codesign --force --deep --sign - "$APP"
+echo "Signing with Apple Development certificate..."
+codesign --force --deep --sign "Apple Development: andyjuang.tw@gmail.com (63BHS9PEY9)" "$APP"
 
 echo ""
 echo "Done! Launch with:  open ElgatoMirror.app"

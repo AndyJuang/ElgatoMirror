@@ -20,12 +20,17 @@ class CaptureManager: NSObject, SCStreamOutput, SCStreamDelegate {
     ) async throws {
         self.frameCallback = frameCallback
 
+        Logger.log("startCapture: requesting SCShareableContent (excludeOurApp=\(excludeOurApp))")
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
+        Logger.log("startCapture: SCShareableContent OK — displays=\(content.displays.map { "id=\($0.displayID) \($0.width)x\($0.height)" })")
 
         let displayID = sourceScreen.displayID
+        Logger.log("startCapture: looking for displayID=\(displayID) in \(content.displays.map { $0.displayID })")
         guard let display = content.displays.first(where: { $0.displayID == displayID }) else {
+            Logger.log("startCapture: ERROR — displayNotFound (id=\(displayID))")
             throw CaptureError.displayNotFound
         }
+        Logger.log("startCapture: display found \(display.width)x\(display.height)")
 
         let filter: SCContentFilter
         if excludeOurApp,
@@ -43,15 +48,23 @@ class CaptureManager: NSObject, SCStreamOutput, SCStreamDelegate {
         config.minimumFrameInterval = CMTime(value: 1, timescale: 30)
         config.queueDepth = 3
         config.pixelFormat = kCVPixelFormatType_32BGRA
-        config.showsCursor = true
+        config.showsCursor = false
 
         let captureStream = SCStream(filter: filter, configuration: config, delegate: self)
-        try captureStream.addStreamOutput(
-            self,
-            type: .screen,
-            sampleHandlerQueue: .global(qos: .userInteractive)
-        )
-        try await captureStream.startCapture()
+        do {
+            try captureStream.addStreamOutput(self, type: .screen, sampleHandlerQueue: .global(qos: .userInteractive))
+            Logger.log("startCapture: addStreamOutput OK")
+        } catch {
+            Logger.logError(error, context: "addStreamOutput")
+            throw error
+        }
+        do {
+            try await captureStream.startCapture()
+            Logger.log("startCapture: stream started successfully")
+        } catch {
+            Logger.logError(error, context: "startCapture")
+            throw error
+        }
         self.stream = captureStream
     }
 
@@ -80,7 +93,7 @@ class CaptureManager: NSObject, SCStreamOutput, SCStreamDelegate {
     // MARK: - SCStreamDelegate
 
     func stream(_ stream: SCStream, didStopWithError error: Error) {
-        print("[CaptureManager] stream stopped: \(error)")
+        Logger.logError(error, context: "SCStreamDelegate.didStopWithError")
         DispatchQueue.main.async { [weak self] in
             self?.onStreamStopped?()
         }

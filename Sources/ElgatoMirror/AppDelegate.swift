@@ -1,5 +1,8 @@
 import AppKit
+import ScreenCaptureKit
+import CoreGraphics
 
+@MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var mirrorWindowController: MirrorWindowController?
@@ -7,8 +10,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var sourceScreen: NSScreen?
     private var targetScreen: NSScreen?
     private var globalKeyMonitor: Any?
+    private var lastScreenCount: Int = 0
+    /// nil = preflight 進行中；true = 已授權；false = 已拒絕
+    private var screenCapturePermission: Bool? = nil
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Logger.rotate()
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        let build   = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
+        Logger.log("=== ElgatoMirror \(version) (\(build)) launched — macOS \(ProcessInfo.processInfo.operatingSystemVersionString) ===")
+        Logger.log("Screens at launch: \(NSScreen.screens.map { "\($0.localizedName) id=\($0.displayID)" })")
+
+        lastScreenCount = NSScreen.screens.count
         updateScreenDefaults()
         setupStatusItem()
         setupGlobalHotkey()
@@ -18,6 +31,34 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             name: NSApplication.didChangeScreenParametersNotification,
             object: nil
         )
+        preflightScreenCapturePermission()
+    }
+
+    /// 啟動時主動觸發 SCKit 權限流程。
+    /// macOS 14+ 使用「螢幕與系統錄音」新模型，必須讓 SCKit 自己走過一次授權，
+    /// 單靠在系統設定手動開啟 toggle 不足以讓正在執行的 process 取得權限。
+    private func preflightScreenCapturePermission() {
+        // CoreGraphics 層診斷（System Settings toggle 控制的是這層）
+        let cgPreflight = CGPreflightScreenCaptureAccess()
+        Logger.log("Preflight: CGPreflightScreenCaptureAccess=\(cgPreflight)")
+        if !cgPreflight {
+            let cgResult = CGRequestScreenCaptureAccess()
+            Logger.log("Preflight: CGRequestScreenCaptureAccess result=\(cgResult)")
+        }
+
+        // SCKit 層
+        Logger.log("Preflight: requesting SCShareableContent permission...")
+        Task {
+            do {
+                let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+                screenCapturePermission = true
+                Logger.log("Preflight: SCKit granted. displays=\(content.displays.map { "id=\($0.displayID) \($0.width)x\($0.height)" })")
+            } catch {
+                screenCapturePermission = false
+                Logger.logError(error, context: "Preflight SCKit")
+            }
+            updateMenu()
+        }
     }
 
     private func setupGlobalHotkey() {
@@ -39,7 +80,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func screensChanged() {
-        if isEnabled { disableMirror() }
+        let currentCount = NSScreen.screens.count
+        if currentCount != lastScreenCount {
+            lastScreenCount = currentCount
+            if isEnabled { disableMirror() }
+        }
         updateScreenDefaults()
         updateMenu()
     }
@@ -169,11 +214,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Mirror control
 
     private func enableMirror() {
+        switch screenCapturePermission {
+        case nil:
+            Logger.log("enableMirror: blocked — permission still pending")
+            showAlert("正在等待系統授權。\n\n請在剛才彈出的對話框中點選「打開系統設定」，於「螢幕與系統錄音」中開啟 ElgatoMirror 的權限後，重新啟動 App 再試一次。")
+            return
+        case false:
+            Logger.log("enableMirror: blocked — permission denied")
+            showAlert("螢幕擷取權限已被拒絕。\n\n請至「系統設定 > 隱私權與安全性 > 螢幕與系統錄音」開啟 ElgatoMirror 的權限後，重新啟動 App 再試一次。")
+            return
+        default:
+            break
+        }
+
         guard let src = sourceScreen, let tgt = targetScreen else {
+            Logger.log("enableMirror: blocked — sourceScreen or targetScreen is nil")
             showAlert("請先選擇來源與目標螢幕。")
             return
         }
 
+        Logger.log("enableMirror: src=\(src.localizedName) id=\(src.displayID)  tgt=\(tgt.localizedName) id=\(tgt.displayID)")
         let controller = MirrorWindowController(sourceScreen: src, targetScreen: tgt)
         controller.onMirroringStopped = { [weak self] in
             self?.disableMirror()
@@ -182,10 +242,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         controller.startMirroring { [weak self] success, errorMsg in
             DispatchQueue.main.async {
                 if success {
+                    Logger.log("enableMirror: mirroring started successfully")
                     self?.isEnabled = true
                     self?.updateStatusButton()
                     self?.updateMenu()
                 } else {
+                    Logger.log("enableMirror: mirroring failed — \(errorMsg ?? "nil")")
                     self?.mirrorWindowController = nil
                     let msg = errorMsg ?? "未知錯誤。請至「系統設定 > 隱私權與安全性 > 螢幕錄影」授予 ElgatoMirror 權限。"
                     self?.showAlert(msg)
